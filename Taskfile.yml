@@ -199,3 +199,75 @@ tasks:
           echo "Enabling subprojects for root projects..."
           docker exec -it postgres_container psql -h localhost -p 5432 -U postgres -d minder -c "$SET_HIERARCHICAL_SQL"
 
+  # -----------------------------------------------------------------------
+  # Integration test targets — run smoke tests against a Minder Docker stack
+  # -----------------------------------------------------------------------
+
+  integration-test:
+    desc: Run full integration test lifecycle (setup → test → teardown)
+    summary: |
+      Starts a Minder Docker stack, bootstraps a test user, runs the smoke
+      tests, and tears everything down.
+
+      Requires:
+        - MINDER_REPO_PATH: path to a cloned mindersec/minder repo
+          (default: ../minder)
+        - Docker / Podman
+
+      Optional:
+        - MINDER_TEST_ORG: GitHub org for repo-related tests
+        - GH_TOKEN: GitHub token for repo operations
+
+      Example:
+        MINDER_REPO_PATH=~/src/minder task integration-test
+    cmds:
+      - task: integration-setup
+      - defer: { task: integration-teardown }
+      - task: integration-run
+
+  integration-setup:
+    desc: Start Minder Docker stack and bootstrap test user
+    vars:
+      MINDER_REPO_PATH: '{{.MINDER_REPO_PATH | default "../minder"}}'
+    cmds:
+      - cmd: |
+          echo "Starting Minder Docker stack..."
+          docker compose -f {{.MINDER_REPO_PATH}}/docker-compose.yaml up -d --wait
+        silent: false
+      - cmd: |
+          echo "Bootstrapping test user..."
+          ./scripts/bootstrap.sh
+        silent: false
+    env:
+      KEYCLOAK_URL: http://localhost:8081
+      MINDER_API_URL: http://localhost:8080
+      OFFLINE_TOKEN_OUTPUT_PATH: ./offline.token
+      CLIENT_ID: smoke-test-client
+    preconditions:
+      - sh: test -f scripts/bootstrap.sh
+        msg: "bootstrap.sh not found. Are you in the smoke-tests directory?"
+      - sh: test -f {{.MINDER_REPO_PATH}}/docker-compose.yaml
+        msg: "Minder docker-compose.yaml not found at {{.MINDER_REPO_PATH}}. Set MINDER_REPO_PATH."
+
+  integration-run:
+    desc: Run smoke tests against a running Minder stack
+    cmds:
+      - task: test
+    env:
+      MINDER_CONFIG: '{{.ROOT_DIR}}/smoke-test-config.yaml'
+      MINDER_OFFLINE_TOKEN_PATH: '{{.ROOT_DIR}}/offline.token'
+
+  integration-teardown:
+    desc: Tear down the Minder Docker stack
+    vars:
+      MINDER_REPO_PATH: '{{.MINDER_REPO_PATH | default "../minder"}}'
+    cmds:
+      - cmd: |
+          echo "Tearing down Minder Docker stack..."
+          docker compose -f {{.MINDER_REPO_PATH}}/docker-compose.yaml down -v --remove-orphans
+        silent: false
+      - cmd: |
+          echo "Cleaning up generated files..."
+          rm -f offline.token minder-project-id
+        silent: false
+

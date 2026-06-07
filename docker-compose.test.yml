@@ -1,0 +1,43 @@
+# docker-compose.test.yml
+#
+# Compose override that adds the smoke-test runner to the Minder Docker stack.
+# This file is meant to be used alongside the main Minder docker-compose.yaml:
+#
+#   docker compose -f /path/to/minder/docker-compose.yaml \
+#                  -f docker-compose.test.yml up --abort-on-container-exit
+#
+# The smoke-test runner waits for the Minder server to be healthy, then
+# executes the Robot Framework test suite and exits.
+
+services:
+  smoke-tests:
+    container_name: smoke_test_runner
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      minder:
+        condition: service_healthy
+    environment:
+      - MINDER_CONFIG=/etc/minder/config.yaml
+      - MINDER_OFFLINE_TOKEN_PATH=/opt/minder-offline.token
+      - MINDER_TEST_ORG=${MINDER_TEST_ORG:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - MINDER_RULETYPES_PATH=/opt/minder-ruletypes
+    volumes:
+      - ./:/robottests:z
+      - ./offline.token:/opt/minder-offline.token:z
+      - ./smoke-test-config-docker.yaml:/etc/minder/config.yaml:z
+    networks:
+      - app_net
+    command: >
+      --outputdir /robottests/results
+      --pythonpath /robottests
+      --xunit /robottests/results/xoutput.xml
+      --loglevel INFO
+      /robottests/minder-tests
+
+networks:
+  app_net:
+    external: true
+    name: minder_app_net

@@ -2,6 +2,8 @@
 Resource   resources/keywords.robot
 Resource   resources/variables.robot
 
+Test Tags    smoke    github-required    provider-required
+
 Library    resources.helpers
 Library    resources.profiles.Profiles
 Library    resources.github.GitHub

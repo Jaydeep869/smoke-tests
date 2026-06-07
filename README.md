@@ -155,3 +155,98 @@ Test with repo
     Given a copy of repo    stacklok/demo-repo-python    ${test_repo}
     Then assert stuff on    ${test_repo}
 ```
+
+### Running integration tests against a local Minder stack
+
+The integration test mode runs the smoke tests against a full Minder stack
+started via `docker compose` (from the main
+[mindersec/minder](https://github.com/mindersec/minder) repo).
+
+#### Prerequisites
+
+- Docker / Podman
+- [Task](https://taskfile.dev/#/installation)
+- A cloned copy of the `mindersec/minder` repository
+- `curl`, `jq` on the host
+- The `minder` CLI binary on PATH (or set `MINDER_BINARY`)
+- A `smoke-test-client` OIDC client in the Keycloak realm with **Direct Access Grants (ROPC) enabled**.
+  This client must be added to the Keycloak realm JSON in the `mindersec/minder` repo
+  (`deploy/k8s/keycloak/` or the `run-docker` realm import file) before the bootstrap script
+  will succeed. See the bootstrap script header for details.
+
+#### Quick start
+
+```bash
+# 1. Clone minder next to the smoke-tests repo (or set MINDER_REPO_PATH)
+git clone git@github.com:mindersec/minder.git ../minder
+
+# 2. Run the full integration test lifecycle
+task integration-test
+```
+
+This will:
+1. Start the Minder Docker stack (`docker compose up`)
+2. Run `scripts/bootstrap.sh` to create a test user in Keycloak and generate
+   an offline token (no browser interaction needed)
+3. Execute the Robot Framework test suite
+4. Tear down the Docker stack
+
+#### Running tests manually (step by step)
+
+```bash
+# Start Minder stack
+task integration-setup
+
+# Run tests (can be repeated without re-setup)
+task integration-run
+
+# Optionally, run only core tests (no GitHub provider needed):
+MINDER_CONFIG=$(pwd)/smoke-test-config.yaml \
+  MINDER_OFFLINE_TOKEN_PATH=$(pwd)/offline.token \
+  task test -- -i core
+
+# Tear down
+task integration-teardown
+```
+
+#### Test tags
+
+Tests are tagged by their infrastructure requirements:
+
+| Tag | Meaning |
+|-----|---------|
+| `smoke` | All smoke tests (default) |
+| `core` | Tests that only need Minder API + auth token (no GitHub) |
+| `login` | Authentication / whoami tests |
+| `github-required` | Tests that need a live GitHub org and token |
+| `provider-required` | Tests that need an enrolled GitHub App provider |
+
+To run only core tests:
+```bash
+task test -- -i core
+```
+
+To exclude GitHub-dependent tests:
+```bash
+task test -- -e github-required
+```
+
+#### Environment variables for integration mode
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MINDER_REPO_PATH` | `../minder` | Path to cloned `mindersec/minder` repo |
+| `KEYCLOAK_URL` | `http://localhost:8081` | Keycloak base URL |
+| `MINDER_API_URL` | `http://localhost:8080` | Minder HTTP API URL |
+| `MINDER_BINARY` | `minder` | Path to the minder CLI binary |
+| `TEST_USER` | `smoke-test-user` | Keycloak test user to create |
+| `TEST_PASS` | `smoke-test-password` | Test user password |
+
+#### CI Pipeline
+
+Integration tests run automatically via GitHub Actions:
+- **On demand**: via `workflow_dispatch`
+- **Weekly**: Monday 06:00 UTC
+- **On PR**: when CI infrastructure files change
+
+See `.github/workflows/integration-tests.yml` for details.

@@ -1,0 +1,25 @@
+# smoke-test-config.yaml
+#
+# Minder CLI configuration for running smoke tests against a local
+# Docker Compose Minder stack. When the test runner is INSIDE the
+# Docker network (via docker-compose.test.yml), use the service names
+# (minder, keycloak). When running from the HOST, use localhost with
+# the mapped ports.
+#
+# This file is the "inside Docker" variant. For host-side use, see
+# the README instructions to override with localhost values.
+
+http_server:
+  host: localhost
+  port: 8080
+
+grpc_server:
+  host: localhost
+  port: 8090
+  insecure: true
+
+identity:
+  cli:
+    issuer_url: http://localhost:8081
+    realm: stacklok
+    client_id: minder-cli

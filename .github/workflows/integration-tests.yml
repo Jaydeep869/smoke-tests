@@ -1,0 +1,192 @@
+---
+name: Integration Tests
+
+on:
+  # Manual trigger for on-demand runs
+  workflow_dispatch:
+    inputs:
+      minder_ref:
+        description: 'Minder branch/tag to test against'
+        required: false
+        default: 'main'
+      test_tags:
+        description: 'Robot Framework tag filter (e.g. "smoke", "core")'
+        required: false
+        default: ''
+
+  # Weekly scheduled run
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6:00 AM UTC
+
+  # Run on PRs to validate test infrastructure changes
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'docker-compose.test.yml'
+      - 'smoke-test-config*.yaml'
+      - '.github/workflows/integration-tests.yml'
+      - 'Dockerfile'
+      - 'requirements.txt'
+
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MINDER_REF: ${{ github.event.inputs.minder_ref || 'main' }}
+
+jobs:
+  integration-test:
+    name: Run Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      id-token: write    # For potential OIDC use in the future
+
+    steps:
+      # ------------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------------
+      - name: Checkout smoke-tests
+        uses: actions/checkout@v4
+
+      - name: Checkout minder
+        uses: actions/checkout@v4
+        with:
+          repository: mindersec/minder
+          ref: ${{ env.MINDER_REF }}
+          path: minder
+
+      # ------------------------------------------------------------------
+      # Dependencies
+      # ------------------------------------------------------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: minder/go.sum
+
+      - name: Install ko
+        uses: ko-build/setup-ko@v0.6
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+
+      # ------------------------------------------------------------------
+      # Build Minder
+      # ------------------------------------------------------------------
+      - name: Bootstrap Minder
+        working-directory: minder
+        run: make bootstrap
+
+      - name: Build Minder
+        working-directory: minder
+        run: make build
+
+      # ------------------------------------------------------------------
+      # Start Minder stack
+      # ------------------------------------------------------------------
+      - name: Start Minder Docker stack
+        working-directory: minder
+        run: make run-docker
+
+      - name: Wait for Minder stack health
+        run: |
+          echo "Waiting for Minder server to be healthy..."
+          timeout 180 bash -c '
+            until curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; do
+              echo "  ...waiting"
+              sleep 5
+            done
+          '
+          echo "Minder server is healthy!"
+
+          echo "Waiting for Keycloak..."
+          timeout 120 bash -c '
+            until curl -sf http://localhost:8081/health/ready > /dev/null 2>&1; do
+              echo "  ...waiting"
+              sleep 5
+            done
+          '
+          echo "Keycloak is healthy!"
+
+      # ------------------------------------------------------------------
+      # Bootstrap test user
+      # ------------------------------------------------------------------
+      - name: Bootstrap test user and project
+        run: ./scripts/bootstrap.sh
+        env:
+          KEYCLOAK_URL: http://localhost:8081
+          MINDER_API_URL: http://localhost:8080
+          MINDER_BINARY: ${{ github.workspace }}/minder/bin/minder
+          OFFLINE_TOKEN_OUTPUT_PATH: ${{ github.workspace }}/offline.token
+          CLIENT_ID: smoke-test-client
+
+      # ------------------------------------------------------------------
+      # Run tests
+      # ------------------------------------------------------------------
+      - name: Build smoke test image
+        run: task build
+
+      - name: Run smoke tests
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ github.event.inputs.test_tags }}" ]; then
+            EXTRA_ARGS="-i ${{ github.event.inputs.test_tags }}"
+          fi
+          task test -- ${EXTRA_ARGS}
+        env:
+          MINDER_CONFIG: ${{ github.workspace }}/smoke-test-config.yaml
+          MINDER_OFFLINE_TOKEN_PATH: ${{ github.workspace }}/offline.token
+          MINDER_BINARY_PATH: ${{ github.workspace }}/minder/bin/minder
+          MINDER_TEST_ORG: ${{ secrets.MINDER_TEST_ORG }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Results
+      # ------------------------------------------------------------------
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robot-test-results
+          path: |
+            results/
+          retention-days: 30
+
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: 'Integration Test Results'
+          path: results/xoutput.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      # ------------------------------------------------------------------
+      # Teardown
+      # ------------------------------------------------------------------
+      - name: Show Minder logs on failure
+        if: failure()
+        working-directory: minder
+        run: docker compose logs minder --tail=100
+
+      - name: Show Keycloak logs on failure
+        if: failure()
+        working-directory: minder
+        run: docker compose logs keycloak --tail=50
+
+      - name: Teardown Minder stack
+        if: always()
+        working-directory: minder
+        run: docker compose down -v --remove-orphans

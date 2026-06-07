@@ -1,0 +1,22 @@
+# smoke-test-config-docker.yaml
+#
+# Minder CLI configuration for when the test runner runs INSIDE the
+# Docker Compose network (via docker-compose.test.yml).
+# Uses Docker service names instead of localhost.
+
+http_server:
+  host: minder
+  port: 8080
+
+grpc_server:
+  host: minder
+  port: 8090
+  insecure: true
+
+identity:
+  cli:
+    # The issuer_url uses 'keycloak' (Docker service name) because the
+    # token exchange happens inside the Docker network.
+    issuer_url: http://keycloak:8080
+    realm: stacklok
+    client_id: minder-cli

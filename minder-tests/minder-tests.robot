@@ -1,7 +1,7 @@
 *** Settings ***
 Documentation    Test suite for some simple Minder operations
 
-Test Tags    smoke
+Test Tags    smoke    core
 
 Resource   resources/keywords.robot
 Resource   resources/variables.robot
@@ -20,7 +20,7 @@ ${GRPC_BASE_URL}        None   # Placeholder for the value that will be set in S
 *** Test Cases ***
 Valid login
     [Documentation]    Test that a user can log in and get their profile
-    [Tags]    login
+    [Tags]    login    smoke    core
 
     Given I Am Logged Into Minder
     When I Get The User Profile
@@ -28,6 +28,7 @@ Valid login
 
 Provider enrolled
     [Documentation]    Test that a user has at least one provider
+    [Tags]    smoke    github-required    provider-required
 
     Given I Am Logged Into Minder
     When I List My Providers
@@ -35,6 +36,7 @@ Provider enrolled
 
 Project created
     [Documentation]    Test that a user has at least one project
+    [Tags]    smoke    core
 
     Given I Am Logged Into Minder
     When I List My Projects

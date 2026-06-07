@@ -17,3 +17,5 @@ config.yaml
 log.html
 output.xml
 report.html
+# integration test generated files
+minder-project-id
