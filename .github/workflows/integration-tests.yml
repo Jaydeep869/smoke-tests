@@ -68,13 +68,24 @@ jobs:
       # ------------------------------------------------------------------
       - name: Install minder CLI
         run: |
-          MINDER_VERSION=$(curl -sf https://api.github.com/repos/mindersec/minder/releases/latest \
-            | jq -r '.tag_name')
-          echo "Downloading minder CLI ${MINDER_VERSION}..."
-          # Goreleaser naming: minder_VERSION_linux_amd64.tar.gz
-          curl -fsSL \
-            "https://github.com/mindersec/minder/releases/download/${MINDER_VERSION}/minder_${MINDER_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /usr/local/bin minder
+          # Fetch the download URL for the linux amd64 tarball directly from
+          # the releases API — avoids guessing the exact filename format
+          # (goreleaser strips the 'v' prefix: v0.1.2 -> minder_0.1.2_linux_amd64.tar.gz)
+          ASSET_URL=$(curl -sf https://api.github.com/repos/mindersec/minder/releases/latest \
+            | jq -r '.assets[]
+                      | select(.name | test("linux_amd64\\.tar\\.gz$"))
+                      | .browser_download_url')
+
+          if [ -z "${ASSET_URL}" ]; then
+            echo "ERROR: could not find a linux_amd64 tarball in the latest release assets."
+            echo "Available assets:"
+            curl -sf https://api.github.com/repos/mindersec/minder/releases/latest \
+              | jq -r '.assets[].name'
+            exit 1
+          fi
+
+          echo "Downloading minder CLI from: ${ASSET_URL}"
+          curl -fsSL "${ASSET_URL}" | tar -xz -C /usr/local/bin minder
           minder version
 
       # ------------------------------------------------------------------
