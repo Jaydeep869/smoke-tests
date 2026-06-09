@@ -3,7 +3,7 @@ name: Integration Tests
 
 on:
   # Manual trigger for on-demand runs.
-  # NOTE: minder is always tested at mindersec/minder@main to prevent
+  # NOTE: we always test mindersec/minder@main to prevent
   # impersonation attacks where a fork's malicious Makefile/compose
   # code could run with access to this repo's secrets.
   workflow_dispatch:
@@ -42,16 +42,16 @@ jobs:
 
     steps:
       # ------------------------------------------------------------------
-      # Checkout smoke-tests only.
-      # We always test against mindersec/minder@main using pre-built
-      # images — we do NOT checkout the minder repo or run its Makefile.
+      # Checkout smoke-tests.
+      # We test against mindersec/minder@main using pre-built images —
+      # we do NOT run any Makefile from the minder repo.
       # ------------------------------------------------------------------
       - name: Checkout smoke-tests
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------------
       # Install test dependencies directly on the runner.
-      # No container image needed for CI — the runner already has Python.
+      # No container image needed — the runner already has Python.
       # ------------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -63,8 +63,8 @@ jobs:
         run: pip install -r requirements.txt
 
       # ------------------------------------------------------------------
-      # Download the minder CLI binary from the latest release.
-      # This avoids building minder from source (saves ~10 minutes).
+      # Install minder CLI from the latest published GitHub release.
+      # Avoids building from source (~10 min saved).
       # ------------------------------------------------------------------
       - name: Install minder CLI
         run: |
@@ -74,34 +74,67 @@ jobs:
           curl -sL \
             "https://github.com/mindersec/minder/releases/download/${MINDER_VERSION}/minder_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin minder
-          chmod +x /usr/local/bin/minder
           minder version
 
       # ------------------------------------------------------------------
-      # Pull Minder compose file and start the stack using pre-built images.
-      # docker compose up --wait blocks until all healthchecks pass —
-      # no extra polling step needed.
+      # Fetch the minder docker-compose.yaml from main and patch it to
+      # use pre-built ghcr.io images instead of local build directives.
+      # The minder compose file has `build: context: .` for the server
+      # and migrate services — we replace these with the published image.
       # ------------------------------------------------------------------
-      - name: Download Minder docker-compose
+      - name: Fetch and patch Minder docker-compose
         run: |
           curl -sLo docker-compose.minder.yaml \
             https://raw.githubusercontent.com/mindersec/minder/main/docker-compose.yaml
 
-      - name: Start Minder Docker stack
-        run: |
-          # Pull images first so startup is fast and errors are clear
-          docker compose -f docker-compose.minder.yaml pull
-          # --wait blocks until all service healthchecks pass
-          docker compose -f docker-compose.minder.yaml up -d --wait
-        env:
-          # bootstrap.sh waits independently, but --wait on compose
-          # means we already know both minder + keycloak are healthy here
-          KO_DOCKER_REPO: ""   # not needed — using pre-pulled images
+          # Install yq to patch the compose file
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          # Replace build directives with ghcr.io pre-built images
+          yq e '
+            del(.services.minder.build) |
+            .services.minder.image = "ghcr.io/mindersec/minder:latest" |
+            del(.services.migrate.build) |
+            .services.migrate.image = "ghcr.io/mindersec/minder:latest"
+          ' -i docker-compose.minder.yaml
 
       # ------------------------------------------------------------------
-      # Bootstrap: create test user in Keycloak, obtain offline token,
-      # trigger Minder user auto-enrollment, extract project ID.
-      # bootstrap.sh has its own wait_for_url loops as a safety net.
+      # minder needs a few config files and SSH keys that make bootstrap
+      # normally generates. Recreate the minimal set here.
+      # ------------------------------------------------------------------
+      - name: Generate minder runtime config
+        run: |
+          # Fetch config templates from minder main
+          curl -sLo server-config.yaml \
+            https://raw.githubusercontent.com/mindersec/minder/main/config/server-config.yaml.example
+          curl -sLo flags-config.yaml \
+            https://raw.githubusercontent.com/mindersec/minder/main/flags-config.yaml || echo "{}" > flags-config.yaml
+
+          # Generate the SSH keys minder expects
+          mkdir -p .ssh .secrets
+          openssl genrsa -out .ssh/access_token_rsa 2048 2>/dev/null
+          openssl rsa -in .ssh/access_token_rsa -pubout -out .ssh/access_token_rsa.pub 2>/dev/null
+          openssl genrsa -out .ssh/refresh_token_rsa 2048 2>/dev/null
+          openssl rsa -in .ssh/refresh_token_rsa -pubout -out .ssh/refresh_token_rsa.pub 2>/dev/null
+          openssl rand -base64 32 > .ssh/token_key_passphrase
+          # Placeholder GitHub App key (real one not needed for core tests)
+          openssl genrsa -out .secrets/github-app.pem 2048 2>/dev/null
+          echo "Config files and SSH keys ready."
+
+      # ------------------------------------------------------------------
+      # Start the stack. --wait blocks until all healthchecks pass.
+      # No separate health-check polling needed.
+      # ------------------------------------------------------------------
+      - name: Start Minder Docker stack
+        run: |
+          docker compose -f docker-compose.minder.yaml pull --quiet
+          docker compose -f docker-compose.minder.yaml up -d --wait
+
+      # ------------------------------------------------------------------
+      # Bootstrap: create test user, get offline token, enroll user,
+      # extract project ID. Script writes MINDER_PROJECT to $GITHUB_ENV.
       # ------------------------------------------------------------------
       - name: Bootstrap test user and project
         run: ./scripts/bootstrap.sh
@@ -113,7 +146,10 @@ jobs:
           CLIENT_ID: smoke-test-client
 
       # ------------------------------------------------------------------
-      # Run Robot Framework tests directly on the runner (no container).
+      # Run Robot Framework tests directly on the runner.
+      # MINDER_PROJECT is set by bootstrap.sh via $GITHUB_ENV and is
+      # available here as a shell env var — do NOT use ${{ env.X }} syntax
+      # for vars set in previous steps (those are static at parse time).
       # ------------------------------------------------------------------
       - name: Run smoke tests
         run: |
@@ -131,9 +167,10 @@ jobs:
         env:
           MINDER_CONFIG: ${{ github.workspace }}/smoke-test-config.yaml
           MINDER_OFFLINE_TOKEN_PATH: ${{ github.workspace }}/offline.token
-          MINDER_PROJECT: ${{ env.MINDER_PROJECT }}
           MINDER_TEST_ORG: ${{ secrets.MINDER_TEST_ORG }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # MINDER_PROJECT is injected automatically from $GITHUB_ENV
+          # (set by bootstrap.sh) — no need to reference it here explicitly
 
       # ------------------------------------------------------------------
       # Results
