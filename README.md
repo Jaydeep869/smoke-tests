@@ -20,6 +20,7 @@ task test
 
 Since the tests run in a container, they need a `minder` Linux binary in the path.
 If you're runninng on a non-Linux machine, you need to provide one with an environment variable:
+
 ```bash
 MINDER_BINARY_PATH=/path/to/minder task test
 ```
@@ -30,6 +31,7 @@ tests that create, modify, or delete repositories and pull requests.
 It is possible to specify the org specifying
 `MINDER_TEST_ORG=<org-name>` when running `task test`, so the previous
 example becomes
+
 ```bash
 MINDER_BINARY_PATH=/path/to/minder MINDER_TEST_ORG=my-org-name task test
 ```
@@ -42,6 +44,7 @@ section for instructions on how to create repos in a test org.
 The `task test` command will authenticate using an offline token, by default using the `offline.token` file in the current directory. If you want to test against a different environment, you need to provide a configuration file that contains the endpoints and credentials for the environments you want to test against.
 
 For example, to run the tests against the staging environment, you can use the following command:
+
 ```bash
 MINDER_CONFIG=$(pwd)/staging-config.yaml MINDER_OFFLINE_TOKEN_PATH=$(pwd)/staging-offline.token task test
 ```
@@ -71,6 +74,7 @@ Confusingly, the `issuer_url` needs to be `localhost` as that corresponds to the
 ### Using ruletypes from a local repository
 
 If you want to run the tests against a local Minder instance with ruletypes from a local repository, you can pass the path to the ruletypes directory as an environment variable.
+
 ```bash
 MINDER_RULETYPES_PATH=$(pwd)/path/to/ruletypes task test
 ```
@@ -125,7 +129,6 @@ Valid user login
     Then the user is logged in
 ```
 
-
 ### Writing custom libraries
 
 Custom libraries are written in the `resources` directory. Each library should have its own
@@ -169,22 +172,22 @@ started via `docker compose` (from the main
 - A cloned copy of the `mindersec/minder` repository
 - `curl`, `jq` on the host
 - The `minder` CLI binary on PATH (or set `MINDER_BINARY`)
-- A `smoke-test-client` OIDC client in the Keycloak realm with **Direct Access Grants (ROPC) enabled**.
-  This client must be added to the Keycloak realm JSON in the `mindersec/minder` repo
-  (`deploy/k8s/keycloak/` or the `run-docker` realm import file) before the bootstrap script
-  will succeed. See the bootstrap script header for details.
 
 #### Quick start
 
 ```bash
-# 1. Clone minder next to the smoke-tests repo (or set MINDER_REPO_PATH)
+# 1. Install Robot Framework on your host (one-time)
+pip install -r requirements.txt
+
+# 2. Clone minder next to the smoke-tests repo (or set MINDER_REPO_PATH)
 git clone git@github.com:mindersec/minder.git ../minder
 
-# 2. Run the full integration test lifecycle
+# 3. Run the full integration test lifecycle
 task integration-test
 ```
 
 This will:
+
 1. Start the Minder Docker stack (`docker compose up`)
 2. Run `scripts/bootstrap.sh` to create a test user in Keycloak and generate
    an offline token (no browser interaction needed)
@@ -194,20 +197,27 @@ This will:
 #### Running tests manually (step by step)
 
 ```bash
-# Start Minder stack
+# Install Robot Framework (one-time)
+pip install -r requirements.txt
+
+# Start Minder stack and bootstrap test user
 task integration-setup
 
-# Run tests (can be repeated without re-setup)
+# Run all tests against the running stack (no container needed)
 task integration-run
 
-# Optionally, run only core tests (no GitHub provider needed):
-MINDER_CONFIG=$(pwd)/smoke-test-config.yaml \
-  MINDER_OFFLINE_TOKEN_PATH=$(pwd)/offline.token \
-  task test -- -i core
+# OR run only core tests (no GitHub provider needed):
+task integration-run-core
+# which is equivalent to:
+task integration-run TEST_TAGS=core
 
 # Tear down
 task integration-teardown
 ```
+
+> **Note on two execution modes:**
+> - `task test` — runs tests **inside a Docker container** (good for local dev isolation, matches the original test runner)
+> - `task integration-run` — runs tests **directly on the host** using the installed `robot` command (used by CI and for testing against a running stack with manual setup)
 
 #### Test tags
 
@@ -216,17 +226,18 @@ Tests are tagged by their infrastructure requirements:
 | Tag | Meaning |
 |-----|---------|
 | `smoke` | All smoke tests (default) |
-| `core` | Tests that only need Minder API + auth token (no GitHub) |
-| `login` | Authentication / whoami tests |
+| `core` | Tests that only need Minder API (no GitHub) |
 | `github-required` | Tests that need a live GitHub org and token |
-| `provider-required` | Tests that need an enrolled GitHub App provider |
+| `provider-required` | Tests that need an enrolled GitHub provider |
 
 To run only core tests:
+
 ```bash
 task test -- -i core
 ```
 
 To exclude GitHub-dependent tests:
+
 ```bash
 task test -- -e github-required
 ```
@@ -245,6 +256,7 @@ task test -- -e github-required
 #### CI Pipeline
 
 Integration tests run automatically via GitHub Actions:
+
 - **On demand**: via `workflow_dispatch`
 - **Weekly**: Monday 06:00 UTC
 - **On PR**: when CI infrastructure files change

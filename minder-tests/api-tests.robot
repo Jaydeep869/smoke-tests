@@ -11,8 +11,6 @@ Library    resources.minder_restapi_lib.MinderRestApiLib
 Library    resources.eval_results_service.EvalResultsService
 Library    resources.rule_type_service.RuleTypeService
 
-Test Tags    smoke    core
-
 Suite Setup    Load Config
 
 Test Setup      Create Project And Ruletypes

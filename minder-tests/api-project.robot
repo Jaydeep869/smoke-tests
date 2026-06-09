@@ -2,8 +2,6 @@
 Resource   resources/keywords.robot
 Library    resources.projects.Projects
 
-Test Tags    smoke    core
-
 Suite Setup    Load Config
 
 Test Setup    Default Setup

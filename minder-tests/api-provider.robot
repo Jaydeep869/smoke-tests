@@ -2,8 +2,6 @@
 Resource   resources/keywords.robot
 Library    resources.oauth_service.OAuthService
 
-Test Tags    smoke    core
-
 Suite Setup    Load Config
 
 Test Setup    Default Setup

@@ -1,8 +1,8 @@
 ---
-version: '3'
+version: "3"
 
 dotenv:
-  - '.env'
+  - ".env"
 
 env:
   IMAGE: localhost/smoke-test-experiments
@@ -26,7 +26,7 @@ tasks:
       The minder configuration file is only mounted if it is provided in the environment.
 
       Available variables:
-      
+
       - MINDER_BINARY_PATH: The path to the minder binary. If not provided, the
         task will try to find the minder binary in the system.
       - MINDER_CONFIG: The path to the minder configuration file. If not provided,
@@ -74,7 +74,7 @@ tasks:
       CTESTDIR: /robottests
     vars:
       _MINDER_BINARY_PATH:
-        sh: '{{if .MINDER_BINARY_PATH}} echo {{.MINDER_BINARY_PATH}} {{else}} which minder {{end}}'
+        sh: "{{if .MINDER_BINARY_PATH}} echo {{.MINDER_BINARY_PATH}} {{else}} which minder {{end}}"
       _CONTAINER_OPTS: '{{._GLOBAL_CONTAINER_OPTS}} {{if ._CONTAINER_CMD | contains "podman"}} {{._PODMAN_OPTS}} {{end}}'
     preconditions:
       - sh: test -f {{._MINDER_BINARY_PATH}}
@@ -207,16 +207,21 @@ tasks:
     desc: Run full integration test lifecycle (setup → test → teardown)
     summary: |
       Starts a Minder Docker stack, bootstraps a test user, runs the smoke
-      tests, and tears everything down.
+      tests directly via robot (no container), and tears everything down.
 
       Requires:
         - MINDER_REPO_PATH: path to a cloned mindersec/minder repo
           (default: ../minder)
         - Docker / Podman
+        - Robot Framework: pip install -r requirements.txt
 
       Optional:
         - MINDER_TEST_ORG: GitHub org for repo-related tests
         - GH_TOKEN: GitHub token for repo operations
+        - TEST_TAGS: Robot tag filter passed to integration-run
+
+      To run only core tests (no GitHub needed):
+        task integration-test TEST_TAGS=core
 
       Example:
         MINDER_REPO_PATH=~/src/minder task integration-test
@@ -242,20 +247,48 @@ tasks:
       KEYCLOAK_URL: http://localhost:8081
       MINDER_API_URL: http://localhost:8080
       OFFLINE_TOKEN_OUTPUT_PATH: ./offline.token
-      CLIENT_ID: smoke-test-client
     preconditions:
       - sh: test -f scripts/bootstrap.sh
         msg: "bootstrap.sh not found. Are you in the smoke-tests directory?"
       - sh: test -f {{.MINDER_REPO_PATH}}/docker-compose.yaml
         msg: "Minder docker-compose.yaml not found at {{.MINDER_REPO_PATH}}. Set MINDER_REPO_PATH."
 
+  # integration-run: run tests against a *already running* Minder stack.
+  # This uses robot directly (no container) — the host Python must have
+  # requirements.txt installed (e.g. `pip install -r requirements.txt`).
+  #
+  # NOTE: This is distinct from `task test`, which builds + runs a
+  # container image. Use `task test` for local dev isolation; use
+  # `task integration-run` when running against a pre-existing stack
+  # (e.g. in CI, or after `task integration-setup`).
   integration-run:
-    desc: Run smoke tests against a running Minder stack
+    desc: Run smoke tests against a running Minder stack (no container)
+    vars:
+      _TAG_FILTER: '{{if .TEST_TAGS}}-i {{.TEST_TAGS}}{{end}}'
     cmds:
-      - task: test
+      - cmd: |
+          robot \
+            --outputdir {{.ROOT_DIR}}/results \
+            --pythonpath {{.ROOT_DIR}} \
+            --xunit {{.ROOT_DIR}}/results/xoutput.xml \
+            --loglevel INFO \
+            {{._TAG_FILTER}} \
+            {{.ROOT_DIR}}/minder-tests
     env:
       MINDER_CONFIG: '{{.ROOT_DIR}}/smoke-test-config.yaml'
       MINDER_OFFLINE_TOKEN_PATH: '{{.ROOT_DIR}}/offline.token'
+    preconditions:
+      - sh: test -f {{.ROOT_DIR}}/offline.token
+        msg: "offline.token not found. Run task integration-setup first."
+      - sh: python3 -c "import robot" 2>/dev/null
+        msg: "Robot Framework not installed. Run: pip install -r requirements.txt"
+
+  integration-run-core:
+    desc: Run only core tests (no GitHub provider needed)
+    cmds:
+      - task: integration-run
+        vars:
+          TEST_TAGS: core
 
   integration-teardown:
     desc: Tear down the Minder Docker stack
@@ -270,4 +303,3 @@ tasks:
           echo "Cleaning up generated files..."
           rm -f offline.token minder-project-id
         silent: false
-

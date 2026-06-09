@@ -20,7 +20,7 @@
 #   KC_ADMIN_PASS             — Keycloak admin password  (default: admin)
 #   TEST_USER                 — Test user to create      (default: smoke-test-user)
 #   TEST_PASS                 — Test user password       (default: smoke-test-password)
-#   CLIENT_ID                 — OIDC client ID           (default: smoke-test-client)
+#   CLIENT_ID                 — OIDC client ID           (default: minder-cli)
 #   MINDER_API_URL            — Minder HTTP API URL      (default: http://localhost:8080)
 #   OFFLINE_TOKEN_OUTPUT_PATH — Where to write token     (default: ./offline.token)
 #   MINDER_BINARY             — Path to minder binary    (default: minder)
@@ -37,7 +37,7 @@ KC_ADMIN_USER="${KC_ADMIN_USER:-admin}"
 KC_ADMIN_PASS="${KC_ADMIN_PASS:-admin}"
 TEST_USER="${TEST_USER:-smoke-test-user}"
 TEST_PASS="${TEST_PASS:-smoke-test-password}"
-CLIENT_ID="${CLIENT_ID:-smoke-test-client}"
+CLIENT_ID="${CLIENT_ID:-minder-cli}"
 MINDER_API_URL="${MINDER_API_URL:-http://localhost:8080}"
 OFFLINE_TOKEN_OUTPUT_PATH="${OFFLINE_TOKEN_OUTPUT_PATH:-./offline.token}"
 MINDER_BINARY="${MINDER_BINARY:-minder}"
@@ -135,7 +135,7 @@ TOKEN_RESPONSE=$(curl -sf -X POST \
     -d "username=${TEST_USER}" \
     -d "password=${TEST_PASS}" \
     -d "scope=openid offline_access") \
-    || fatal "Failed to obtain offline token. Is the '${CLIENT_ID}' Keycloak client configured with Direct Access Grants (ROPC) enabled and the 'offline_access' scope? Create a 'smoke-test-client' in the Keycloak realm config with directAccessGrantsEnabled=true."
+    || fatal "Failed to obtain offline token. Is the '${CLIENT_ID}' client configured for Direct Access Grants (ROPC)?"
 
 OFFLINE_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.refresh_token')
 if [ -z "${OFFLINE_TOKEN}" ] || [ "${OFFLINE_TOKEN}" = "null" ]; then

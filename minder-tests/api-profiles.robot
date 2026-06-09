@@ -14,8 +14,6 @@ Library    resources.profiles.Profiles
 Library    resources.minder_restapi_lib.MinderRestApiLib
 Library    resources.minderlib
 
-Test Tags    smoke    core
-
 Suite Setup    Load Config
 
 Test Setup    Default Setup

@@ -4,8 +4,6 @@ Documentation       Test suite for the Minder data sources REST API
 Resource   resources/keywords.robot
 Library    resources.datasources.DataSources
 
-Test Tags    smoke    core
-
 Suite Setup    Load Config
 
 Test Setup    Default Setup
