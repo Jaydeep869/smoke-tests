@@ -194,15 +194,24 @@ jobs:
 
       # ------------------------------------------------------------------
       # Teardown
+      # All three steps guard against docker-compose.minder.yaml not
+      # existing (e.g. when an earlier step failed before creating it).
       # ------------------------------------------------------------------
       - name: Show Minder logs on failure
         if: failure()
-        run: docker compose -f docker-compose.minder.yaml logs minder --tail=100
-
-      - name: Show Keycloak logs on failure
-        if: failure()
-        run: docker compose -f docker-compose.minder.yaml logs keycloak --tail=50
+        run: |
+          if [ -f docker-compose.minder.yaml ]; then
+            docker compose -f docker-compose.minder.yaml logs minder --tail=100
+            docker compose -f docker-compose.minder.yaml logs keycloak --tail=50
+          else
+            echo "docker-compose.minder.yaml not found — stack was never started."
+          fi
 
       - name: Teardown Minder stack
         if: always()
-        run: docker compose -f docker-compose.minder.yaml down -v --remove-orphans
+        run: |
+          if [ -f docker-compose.minder.yaml ]; then
+            docker compose -f docker-compose.minder.yaml down -v --remove-orphans
+          else
+            echo "docker-compose.minder.yaml not found — nothing to tear down."
+          fi
